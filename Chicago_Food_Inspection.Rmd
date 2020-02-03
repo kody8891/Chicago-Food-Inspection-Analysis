@@ -1,0 +1,323 @@
+---
+title: "Analysis of Chicago Food Inspection Data"
+author: "Kody Reichert"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+##Abstract
+
+This report will mainly focus on Chicago Food Inspections Data. We will conduct a multivariate analysis about this dataset. Firstly we will include time series modeling for failure rates. Secondly, we will create bar plots to analyze failure rates across different groups and classes. Next, we use text analysis to determine what the most used words and groups of words were, we next utilized a map plot to determine the area of highest concentration of failure, and finally we used decision tree modeling to determine how number of violations will impact the failure or passing of an inspeciton. In the end we will draw conclusions from the results and make further suggestions to how we can improve the food businesses in Chicago.   
+
+##Introduction
+
+Finding a clean and safe place to eat can sometimes be hard when you're in a pinch for a quick and easy meal. You worry that the place you are going to eat at might not be up to code or safety standards. Luckily you have access to the Chicago Food Inspections data and you can easily find the reports history of all the given restraunts in town. This data was collected from the start of the decade and is up to date all the way until earlier this year. The Chicago Department of Public Health (CDPH) works tirelessly to make sure that you're trip to the local burgershop isn't a trip to the local hospital.
+
+The current data set we are workign with contains about 187787 observations with 22 variables. The data comes directly from The Chicago Department of Public Health. It gathers data from all food serving establishements across Chicago. Some of the necessary factor variables to understand are the Risk factor of a business to public health, its inspection type, and the result(Pass/Fail/Other) of the report. Some of the important numeric data include the Latitude and Longitude as well the inspection date. There is also a variable called violations which is a text variable containg the violation number and a summary of the codes that were violated. You can obtain the data from https://uofi.box.com/shared/static/5637axblfhajotail80yw7j2s4r27hxd.csv
+
+In this report we plan to do an effective data analysis of some of the factor variables such as the risk factor and insepction results/violations and determine how they effect the outcome of the reprot.Secondly, we will a time series analysis to determine if The Chicago Department of Public Health (CDPH) were successful in dropping the number of violations over time. We will utilize a decision tree to determine how number of violations impact the likelihood of a report to pass. Finally, we will do a location analysis to show some at risk or volatile areas in terms of failing inspections. 
+
+```{r}
+options(repos=structure(c(CRAN="https://cran.cnr.berkeley.edu/")))
+```
+
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(maps)
+library(ggmap)
+library(lubridate)
+library(tidytext)
+library(ggthemes)
+library(tree)
+```
+
+```{r}
+data_inspection = fread("https://uofi.box.com/shared/static/5637axblfhajotail80yw7j2s4r27hxd.csv")
+dim(data_inspection)
+```
+
+```{r}
+data_inspec_processed = data_inspection %>% filter(Risk == "Risk 3 (Low)" | Risk == "Risk 2 (Medium)" | Risk == "Risk 1 (High)", Results == "Fail" | Results == "Pass" | Results == "Pass w/ Conditions") %>% mutate(Result = ifelse(Results == "Pass w/ Conditions" | Results == "Pass", "Pass", "Fail")) 
+```
+
+
+```{r}
+data_inspec_processed$'Inspection Date' = as.Date(data_inspec_processed$'Inspection Date', format = "%m/%d/%Y")
+data_inspec_processed$year_month = format(data_inspec_processed$'Inspection Date', "%Y-%m")
+data_inspection_processed1 = filter(data_inspec_processed, year_month >= 2010-1)
+```
+
+
+## Time Series Analysis
+
+In terms of understanding the success of the Chicago Department of Public health we need to see if there has been a noticeable decrease in the failure rate of restraunts over time. Decreasing failure rates mean that they have done a good job of policing and educating businesses in proper health and sanitary standards. We can see this easily by plotting the failures over total inspections over time.
+
+We decided to apply a time series to visualize this data. We first calculate the number of inspections of each month and the failure rates of each months from 2010 to 2019. Then we plot the number of inspections over time (monthly) and failure rates of inspections over time (monthly) to show how successful the inspections have been through the last nine years.  
+
+As we can see from the first plot and the regression line in the first plot, the trend remains constant with the times go. However, from the second plot and the regression line in this plot, we could see that the failed rates have an obvious downtrend overtime. Therefore, we could say that while the number of inspections kept constant over the past nine years, the failure rates decrease instead. This phenomenon might be highly correlated with inspection since under inspections, owners of establishments tend to pay more attention to the food safety situation to pass the inspection test.   
+
+```{r}
+library(ggplot2)
+time_frame = aggregate(cbind(count = year_month) ~ year_month, 
+          data = data_inspection_processed1, 
+          FUN = function(x){NROW(x)})
+result_time_frame = data_inspec_processed %>% group_by(year_month, Result) %>% summarise(count = n()) %>% mutate(percentage=count/sum(count)) %>% filter(Result == "Fail")
+```
+
+```{r}
+
+p1 = ggplot(time_frame, aes(year_month, count, group = 1))+
+  geom_ribbon(aes(ymin=0, ymax=count), fill="lightblue", color="black")+
+  geom_line(color="black", lwd=1) +
+  geom_smooth(method='lm', formula= y~x) +
+  ylab("Number of Inspections")+ xlab("Inspection Date") +   scale_x_discrete(breaks = c("2010-01", "2010-06", "2011-01", "2011-06", "2012-01", "2012-06", "2013-01", "2013-06", "2014-01", "2014-06", "2015-01", "2015-06", "2016-01", "2016-06", "2017-01", "2017-06", "2018-01", "2018-06","2019-01",  "2019-04"),
+                   labels = c("","2010","", "2011","", "2012","", "2013","", "2014","", "2015","", "2016","", "2017","", "2018","", "2019")) + theme_classic() 
+```
+
+```{r}
+p2 = ggplot(result_time_frame, aes(year_month, percentage, group = 1))+
+  geom_ribbon(aes(ymin=0, ymax=percentage), fill="lightblue", color="black")+
+  geom_line(color="black", lwd=1)+
+  ylab("Fail Rates")+ xlab("Inspection Date") +   scale_x_discrete(breaks = c("2010-01", "2010-06", "2011-01", "2011-06", "2012-01", "2012-06", "2013-01", "2013-06", "2014-01", "2014-06", "2015-01", "2015-06", "2016-01", "2016-06", "2017-01", "2017-06", "2018-01", "2018-06","2019-01",  "2019-04"),
+                   labels = c("","2010","", "2011","", "2012","", "2013","", "2014","", "2015","", "2016","", "2017","", "2018","", "2019")) + theme_classic() + geom_smooth(method='lm', formula= y~x)
+```
+
+```{r}
+ggarrange(p1,p2,ncol=1,nrow=2)
+```
+
+##Failure Rate Analysis
+
+For our second main analysis, we were also interested in seeing if the risk variables had any influence in determing failure rates. Therefore, we grouped the dataset by the "Risk" variable and calculated the failure rates for each type of "Risk". Then, we use barplots in order to get a better understanding of how failure rate changes based on different factors such as risk level and business type. 
+
+One would expect that higher risk variables will likely result in higher failure rates and conversely th lower risk establishments will likely pass much easily. Exploring the data we find this to be very far from the truth. Low risks establishments fail at almost 10% higher rates than high or medium risk establishments. High risk fail at rates of 21%, Medium risks at rates of 22%, and Low risk fail at staggering 31% of the time. I think that a major reason could be that high risk establishments are either labeled as such because they are very important to the food supply and them failing with be very detrimental to the local economy. Another theory we have is that low risk establishments are not used to being tested as often and may often slack off at staying up to date on sanitaiton codes.
+
+We are now interested in the low-risk establishments since they have higher failure rates than the other two types of risk types. Therefore, we choose those observations which are low-risk establishments and rank those observations and sort them by the "Facility Type" variable. We plot these five facility types and they are Grocery Store, Restaurant, Liquor, Mobile Food Dispenser and Wholesale.  
+
+Then we calculate the failure and pass rates of these five facility types and make a barplot in order to show the failure and pass rates across different Facility type clearly. According to the following plots, we can find that the Grocery Store, Mobile Food Dispenser and Wholesale have failure rates larger than 0.3 and the "Liquor" facility type has failure rate of 0.4! 
+
+In conclusion we can see that the failure rates for high-risk establishments and the medium-risk establishments are about the same.However, The low-risk establishments have much higher failure rate than the other two. This is a surprising observation and we decide to research more about this fact. After researching about the document of this dataset, we found that one of the most important reasons might be that low-risk establishments are inspected less than the other two types of establishments. Also we found that from the results of the second plot, we should definitely pay more attention to the low-risk establishments than before, especially the major food access in the low-risk establishments including Grocery Store, Mobile Food Dispenser, Wholesale and Liquor.   
+  
+
+
+```{r}
+plot_data = group_by(data_inspec_processed,Risk, Result) %>% summarise(count = n())%>% mutate(percentage=count/sum(count))
+```
+
+```{r}
+ggplot(data = plot_data, aes(x = Risk, y = percentage, fill = Result)) + 
+  geom_bar(stat = "identity", position = "dodge") + geom_text(aes(label=round(plot_data$percentage,2), group=Result), position=position_dodge(width=0.8), vjust=-0.2, hjust = 0.5) + theme_classic() + labs(x = "Risk", y = "Failure Rates")
+```
+
+
+```{r}
+data_lowrisk = filter(data_inspec_processed,Risk == "Risk 3 (Low)", `Facility Type` != "")
+data_lowrisk %>% group_by(`Facility Type`) %>% summarise(count = n()) %>% top_n(5) %>% ungroup() %>% mutate(`Facility Type` = reorder(`Facility Type`, count)) %>%
+  ggplot(aes(`Facility Type`, count)) +
+  geom_col(show.legend = FALSE) +
+  labs(y = "Count",
+       x = "Facility Type") +
+  coord_flip() +
+  theme_classic()
+```
+
+
+
+```{r}
+plot_data_lowrisk = data_lowrisk %>% filter(`Facility Type` == "Grocery Store" | `Facility Type` == "Restaurant" | `Facility Type` == "Liquor" | `Facility Type` == "Mobile Food Dispenser" | `Facility Type` == "Wholesale") %>% group_by(`Facility Type`, Result) %>% summarise(count = n())%>% mutate(percentage=count/sum(count)) %>% ungroup() %>% mutate(`Facility Type` = reorder(`Facility Type`, count))
+
+
+
+ggplot(data = plot_data_lowrisk, aes(x = `Facility Type`, y = percentage, fill = Result)) + 
+  geom_bar(stat = "identity", position = "dodge")  + geom_text(aes(label=round(plot_data_lowrisk$percentage,2), group=Result), position=position_dodge(width=0.8), vjust=0.3, hjust = 1.1) + theme_classic() + labs(y = "Failure Rates") + coord_flip()
+```
+
+
+## Location Analysis
+
+We were intrigued at the notion that there might be locations in the city that are worse than others in terms of rampant violation and failing the inspections. In order to do this we utilized the ggmap function and the latitude and longitude variables to plot the location of all the failed restraunts throughout Chicago. 
+
+Looking at the map plot we can see that there is a very high density of failed businesses in the central and downtown areas of Chicago. The northside of Chicago is also kind of high compared to the rest of Chicago but definelty not anywhere near close to the failing mess that is downtown. The Southside area is very sparce in terms of failed businesses.
+
+Our recommendations as a result of our map analysis is that because the downtown and northside has a such a high concentration of failed businesses, it may be worth putting more effort into keeping restraunts on their toes.
+
+```{r}
+options(warn=-1)
+
+
+chi_bb <- c(left = -87.936287,
+            bottom = 41.679835,
+            right = -87.447052,
+            top = 42.000835)
+
+chicago_stamen <- get_stamenmap(bbox = chi_bb,
+                                zoom = 11)
+chicago_stamen
+
+ggmap(chicago_stamen)+
+  stat_density2d(aes(x = Longitude, y = Latitude, fill = ..level.., alpha = 0.01),
+  size = 0.01, bins = 30, data = data_inspection, geom = "polygon") +
+  scale_fill_gradient(low="red", high="darkred", limits = c(0,250), guide = "legend", name = "Number of  Failed Businesses") +
+  scale_alpha(range = c(0.15, 0.65), guide = F)+
+  labs(x = "", y = "")+
+  theme_fivethirtyeight()
+```
+
+## Text Analysis
+
+Since we are interested in what are the most used terms and phrases, We used both bar plots and a wordcloud to represent counts and plots of the most used words and phrases. 
+
+For the bar plot, it displays the most frequently occurring words in the violation reports for the  Chicago Department of Public Health. As we can see, the most frequent results are shown in the dark blue and represent the largest bars. For example,  the word comments was used 79 times, food was used 76 times, clean was used 61 times. Many of the top words are common syntax used by inspectors such as comments, citation, and observed. We were not too surprised by the results but we expected to see more references to physical types of equipment. 
+
+Although bar plot is great for representing counts of data, word clouds is better for understanding and visualizing the magnitude and usage of the words. Based on the plot, we can see that there are a lot of words that have to do with surfaces such as ceilings,floors, and walls. In addition, different types of cleaning  and hardware equipment are also referenced frequently. If you look at the graph carefully, you can also figure out that there are many practices and verbs dealing with general upkeep and sanitation standards.  
+
+Now, we are interested in determine what clusters of words together are the most used. Word trigrams are clusters of 3 adjacent words. We used the barplots to display the most used trigrams."Food contact surfaces" , " Food contact equipment" , "repair coving installed" , " coving installed dust" , "34 floors constructed" are the 5 most used trigrams in the violations reports. 34 is a code violation corresponding to floors being constructed or cleaned improprerly. All these trigrams seem to make logical sense together.
+
+In conclusion, the most used words were common syntax used by inspectors, types of cooking equipment, and structures used in restraunts. The most used trigrams were clusters of words destribing food being in contact with improprer equipment. Also, there is a large emphasis on Coving being installed, repaired, and likely cleaned of dust. Our suggestion is to pay special attnetion to how your food is handled and makes sure all of your building infrastructure is clean and installed correctly.
+
+
+```{r}
+set.seed(448)
+si <- sample(1:nrow(data_inspection),20) #random sample of 20 rows
+
+nc8 <- str_length(data_inspection$violations[si]) #counts number of characters
+
+median(nc8, na.rm = TRUE)
+
+str_count(data_inspection$violations[si][1], "i")
+```
+
+```{r}
+library(tm)
+e8 <- data.frame(doc_id=si,text=data_inspection$Violations[si],stringsAsFactors = FALSE)
+corpus <- VCorpus(DataframeSource(e8))
+
+#R code from Kwartler's book
+
+# Return NA instead of tolower error
+tryTolower <- function(x){
+# return NA when there is an error
+y = NA
+# tryCatch error
+try_error = tryCatch(tolower(x), error = function(e) e)
+# if not an error
+if (!inherits(try_error, 'error'))
+y = tolower(x)
+return(y)
+}
+
+#custom.stopwords <- c(stopwords("english"), additional useless words)
+
+clean.corpus<-function(corpus){
+corpus <- tm_map(corpus, content_transformer(tryTolower))
+#corpus <- tm_map(corpus, removeWords, custom.stopwords)
+corpus <- tm_map(corpus, removeWords, stopwords('english'))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, stripWhitespace)
+corpus <- tm_map(corpus, removeNumbers)
+return(corpus)
+}
+
+newcorpus <- clean.corpus(corpus)
+
+tdm<-TermDocumentMatrix(newcorpus, control=list(weighting=weightTf))
+tdm.violations <- as.matrix(tdm)
+
+sfq <- data.frame(words=names(sort(rowSums(tdm.violations),decreasing = TRUE)), freqs=sort(rowSums(tdm.violations),decreasing = TRUE), row.names = NULL)
+
+ggplot(sfq[1:20,], mapping = aes(x = reorder(words, freqs), y = freqs,fill=freqs)) +
+  scale_fill_gradient2()+
+  geom_bar(stat= "identity") +
+  coord_flip() +
+  labs(x= "Words",y='Frequency', title = "20 Most Frequenct Words in Inspection violations reports") +
+  theme(panel.background = element_blank(),axis.ticks.x = element_blank(),axis.ticks.y = element_blank())
+```
+
+
+```{r}
+library(devtools)
+library(wordcloud2)
+wordcloud2(data = sfq)
+```
+ 
+
+```{r}
+Violation_data = tibble(data_inspection$Violations)
+Trigram_data = Violation_data %>%
+  unnest_tokens(trigram, data_inspection$Violations, token = "ngrams", n = 3) %>%
+  separate(trigram, c("word1", "word2", "word3"), sep = " ") %>%
+  filter(!word1 %in% stop_words$word,
+         !word2 %in% stop_words$word,
+         !word3 %in% stop_words$word) %>%
+  count(word1, word2, word3, sort = TRUE) %>%
+    unite(trigram, word1, word2,word3, sep = " ")
+
+Trigram_plot = Trigram_data[1:5,] %>% ungroup()
+ggplot(data = Trigram_plot, aes(x = reorder(trigram, n), y = n, fill =c(2,"red","red","red","red"))) + geom_bar(stat = "identity") + coord_flip() + geom_text(aes(label=Trigram_plot$n), position=position_dodge(width=0.8), vjust=-0.5, hjust = 1.1) + theme_classic() + theme(legend.position = "none") + labs(x = "Trigrams", y = "Count")
+```
+
+## Decision Tree Analysis
+
+For our final analysis we wanted to determine how the total number of violations can contribute to passing or failing by leverage decision trees .Predicting whether or not the report will fail is a very interesting ability to have. With the use of decision tree and the available data of the total violations from the violations column we can implement a model that will predict fail or passing the inspection based on how many violations occured. As you might know, decision trees can be used to determine what the likelihoods of an event are given certain characteristics. 
+
+In this case we take the total number of violations. Based on the plot, we can say that if the total violations are less than 8.5 we can move to the left node and decide that it most likely that you will pass. Obviously with fewer violations, your likelihood of passing increases. On the other hand, if total violations are greater than 8.5 than the test may be in trouble. However, if you are between 8.5 and 10.5 you will still most likely pass. But if you violations exceed 10.5 say 11 or more, the test will most likely fail.  
+
+Our recommendation is to obviously minimize the # of violations you have but definetly try to keep to 10 or fewer observations if you want a likely chance of passing your inspection.
+```{r}
+food <- read_csv("https://uofi.box.com/shared/static/5637axblfhajotail80yw7j2s4r27hxd.csv", 
+    col_types = cols(Address = col_skip(), 
+        `Census Tracts` = col_skip(), City = col_skip(), 
+        `Community Areas` = col_skip(), `Historical Wards 2003-2015` = col_skip(), 
+        `Inspection Date` = col_date(format = "%m/%d/%Y"), 
+        Location = col_skip(), State = col_skip(), 
+        Wards = col_skip(), `Zip Codes` = col_skip()))
+
+dim(food)
+colnames(food) <- tolower(colnames(food))
+```
+
+```{r}
+food <- arrange(food, desc(`inspection date`)) 
+
+foodd <- distinct(food, `license #`, .keep_all=TRUE)
+foodd$totalviolations <- str_count(foodd$violations, "\\|") +1 # we could create a new variable that counts the number of violations
+
+foodi <- filter(foodd, results == "Pass" | results == "Fail")
+```
+
+```{r}
+# partitioning the data - 80% training, 20% testing
+set.seed(448)
+ids<-sample(nrow(foodi),floor(0.8*nrow(foodi)))
+trainingData <- foodi[ids,]
+testingData <- foodi[-ids,]
+
+trainingData_response <- trainingData$results
+testingData_response <- testingData$results
+
+trainingData_predictors <- trainingData[,-10]
+testingData_predictors <- testingData[,-10]
+```
+
+```{r}
+inspection_response <- factor(trainingData_response)
+inspection_tree <- tree(inspection_response ~  totalviolations + risk , data = trainingData)
+
+plot(inspection_tree)
+text(inspection_tree, pretty=0)
+```
+
+
+
+##Conclusions:
+We can make several conclusions based on the questions we have explored. First of all, we can say that the Chicago Department of Public Health has been successful in the last 9 years in the aspect of lowering failure rate. So Even though the inspection rates did not change over time, the failure rates decrease consitently. Secondly, the high risk type has about the same as medium risk type but low risk type has higher failure rate than the other two types. The reason might be low frequency of inspection on low risk types. We still think that we should pay more attention to low risk businesses especially Grocery Stores, Mobile Food Dispensers, Wholesale and Liquor stores.     
+Furthermore, we can give some other suggestions.  we should pay more attention to the Downtown and North side of Chicago since they have more failed business. From our text analysis, we suggest to pay special attnetion to how your food is handled and makes sure all of your building infrastructure is clean and installed correctly. Finally we used a decision tree to determine that if certain establishments have 10 or fewer violations in violation report, these establishments will most likely pass, any more than that  will most likely fail.    
+
+
+
